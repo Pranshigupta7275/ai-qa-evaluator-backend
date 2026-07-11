@@ -1,0 +1,60 @@
+[
+  {
+    "ruleId": "GEN-001",
+    "category": "General",
+    "description": "CRITICAL ERROR: L1/L2 agents must not ask customers for unnecessary or irrelevant information not required for handling the issue."
+  },
+  {
+    "ruleId": "GEN-002",
+    "category": "General",
+    "description": "Before escalating to L3, the agent must collect mandatory information (Booking Reference, Name, Flight details) and document a clear summary in the CRM."
+  },
+  {
+    "ruleId": "BAG-001",
+    "category": "Baggage Delay",
+    "description": "If a customer reports delayed baggage but left the airport without a PIR, the agent must advise that a PIR is mandatory and claims cannot be processed without one. Do not process the claim."
+  },
+  {
+    "ruleId": "CANC-001",
+    "category": "Cancellation",
+    "description": "Agent must explicitly state if the ticket is refundable or non-refundable before canceling."
+  },
+  {
+    "ruleId": "CANC-002",
+    "category": "Cancellation",
+    "description": "If non-refundable, agent must offer future travel credit. Cash refunds must not be offered."
+  },
+  {
+    "ruleId": "CANC-003",
+    "category": "Cancellation",
+    "description": "Agent must advise the flyer of the timeline for processing the cancellation/credit."
+  },
+  [
+  
+  {
+    "ruleId": "REF-001",
+    "category": "Refund",
+    "description": "Agent must verify the booking source (Direct vs. Third-party) before processing refund requests."
+  },
+  {
+    "ruleId": "REF-002",
+    "category": "Refund",
+    "description": "Agent must explain refund eligibility based on fare type (Flex vs. Non-refundable)."
+  },
+  {
+    "ruleId": "REF-003",
+    "category": "Refund",
+    "description": "Agent must provide the estimated processing time for the refund upon request."
+  }
+],
+  {
+    "ruleId": "IRR-001",
+    "category": "Flight Disruptions",
+    "description": "Agents are not authorized to approve hotel accommodations or EU261 compensation. Escalate to L3."
+  },
+  {
+    "ruleId": "PAY-001",
+    "category": "Payments",
+    "description": "If a payment was deducted but no booking exists, agents must not confirm payment receipt or promise a refund. Collect transaction details and escalate to L3."
+  }
+]
