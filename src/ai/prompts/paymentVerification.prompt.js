@@ -21,8 +21,13 @@ SOP RULES TO EVALUATE:
    - The agent MUST NOT confirm that a payment is successful simply because the customer claims money was deducted.
    - The agent MUST explicitly state they are checking the system to verify.
 
-3. Escalation Procedure
-   - If the agent cannot find the payment, they MUST escalate the issue to L3 Support, the Finance team, or the Reservations Team.
+Mandatory Information Collection (CRITICAL)
+   - The agent MUST ask for ALL of the following: Booking Reference, Passenger Name, Payment Date/Amount, Payment Method, and Transaction/Authorization ID.
+   - If the agent escalates to L3 WITHOUT collecting these details, this is a CRITICAL FAIL.
+
+2. Escalation Procedure
+   - Escalation to L3 Support is only permitted AFTER the agent has attempted to collect all mandatory information. 
+   - If the agent finds missing info, they must request it. If they cannot find the payment after requesting all info, they MUST escalate.
 
 =========================================
 REQUIRED JSON OUTPUT SCHEMA
