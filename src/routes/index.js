@@ -5,7 +5,10 @@ const versionRoutes = require('./version.routes');
 const evaluateRoutes = require('./evaluate.routes');
 const refundRoutes = require('./refund.routes');
 const cancellationRoutes = require('./cancellation.routes');
+const paymentRoutes = require('./payment.routes');
 const qaRoutes = require('./qa.routes');
+const orchestratorRoutes = require('./orchestrator.routes');
+const orchestratorController = require('../controllers/orchestrator.controller');
 
 const router = express.Router();
 
@@ -14,6 +17,9 @@ router.use('/version', versionRoutes);
 router.use('/evaluate', evaluateRoutes);
 router.use('/refund', refundRoutes);
 router.use('/cancellation', cancellationRoutes);
+router.use('/payment', paymentRoutes);
+router.use('/orchestrator', orchestratorRoutes);
+router.post('/analyzeFull', orchestratorController.analyzeFull);
 router.use('/qa', qaRoutes);
 
 module.exports = router;

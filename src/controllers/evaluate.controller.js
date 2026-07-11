@@ -1,29 +1,40 @@
 const intentDetectionService = require('../services/intent.service');
-const { GLOBAL_QA_BASE_PROMPT } = require('../ai/prompts/base.prompt.js');
 const logger = require('../config/logger');
+const ApiResponse = require('../utils/ApiResponse');
+const ApiError = require('../utils/ApiError');
 
 class EvaluateController {
   // The route is looking for exactly this word: "evaluate"
   async evaluate(req, res, next) {
     try {
       const { conversation } = req.body;
+
+      // ==========================================
+      // INPUT VALIDATION
+      // ==========================================
+      if (!conversation || !Array.isArray(conversation)) {
+        throw new ApiError(400, 'A valid conversation array is required.', 'BAD_REQUEST');
+      }
       
       logger.info('Starting Intent and Category Detection Pipeline...');
 
+      // Run the detection pipeline
       const detectionData = await intentDetectionService.detectIntentAndCategory(conversation);
       
-      return res.status(200).json({
-        success: true,
-        message: 'Conversation intent and category detected successfully',
-        data: detectionData,
-        error: null
-      });
+      // Return using the standard ApiResponse wrapper
+      return res.status(200).json(
+        new ApiResponse(
+          200, 
+          detectionData, 
+          'Conversation intent and category detected successfully.'
+        )
+      );
 
     } catch (error) {
+      logger.error('Intent Detection Pipeline Error:', error);
       next(error); 
     }
   }
 }
 
-// Ensure you have the "new" keyword here!
 module.exports = new EvaluateController();

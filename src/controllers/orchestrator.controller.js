@@ -1,107 +1,137 @@
-const IntentDetectionService = require('../services/intent.service');
-const CancellationService = require('../services/cancellation.service');
-const RefundService = require('../services/refund.service'); 
-const ScoringService = require('../services/scoring.service');
-const logger = require('../config/logger');
-const ApiResponse = require('../utils/ApiResponse');
-const ApiError = require('../utils/ApiError');
+const IntentDetectionService = require("../services/intent.service");
+const CancellationService = require("../services/cancellation.service");
+const RefundService = require("../services/refund.service");
+const PaymentService = require("../services/payment.service");
+const logger = require("../config/logger");
+const ApiResponse = require("../utils/ApiResponse");
+const ApiError = require("../utils/ApiError");
 
 class OrchestratorController {
   async analyzeFull(req, res, next) {
     const startTime = Date.now();
+
     try {
       // ==========================================
-      // DEBUG: Verify Express/Postman Connection
+      // DEBUGGING: INCOMING REQUEST
       // ==========================================
-      console.log("--- DEBUG START ---");
-      console.log("Postman Content-Type Header:", req.headers['content-type']);
-      console.log("Parsed Body Type:", typeof req.body);
-      console.log("Parsed Body Content:", JSON.stringify(req.body, null, 2));
-      console.log("--- DEBUG END ---");
+      console.log("\n========== 🚨 NEW REQUEST RECEIVED 🚨 ==========");
+      console.log("1. RAW req.body from Postman:");
+      console.log(JSON.stringify(req.body, null, 2)); // This will print exactly what Express sees!
 
-      const { conversation } = req.body;
+      logger.info("========== Incoming Request ==========");
+      logger.info(JSON.stringify(req.body, null, 2));
 
-      // ==========================================
-      // INPUT VALIDATION
-      // ==========================================
-      if (!conversation || !Array.isArray(conversation)) {
-        throw new ApiError(400, 'A valid conversation array is required.', 'BAD_REQUEST');
+      const conversation = req.body?.conversation;
+
+      console.log("2. Extracted 'conversation' property:");
+      console.log(conversation); 
+
+      // VALIDATION
+      if (!Array.isArray(conversation) || conversation.length === 0) {
+        console.log("❌ ERROR: Validation failed! conversation is either missing, not an array, or empty.");
+        throw new ApiError(
+          400,
+          "A valid conversation array is required.",
+          "BAD_REQUEST"
+        );
       }
 
-      // ==========================================
-      // STEP 1: HYBRID INTENT ROUTING
-      // ==========================================
+      console.log("✅ Validation passed. Sending to Intent Router...");
+
+      // STEP 1 - Intent Detection
       const discovery = await IntentDetectionService.detectIntentAndCategory(conversation);
       const { primaryCategory, routingSource } = discovery;
 
-      logger.info(`Orchestrator routed conversation to: ${primaryCategory} (via ${routingSource || 'Unknown Source'})`);
+      console.log(`3. 🎯 Intent Detected: ${primaryCategory} (via ${routingSource})`);
+      logger.info(`Intent detected: ${primaryCategory} (${routingSource || "Unknown"})`);
 
-      // ==========================================
-      // STEP 2: HANDLE INFORMATIONAL QUERIES 
-      // (Zero LLM Cost Bypasses)
-      // ==========================================
-      if (primaryCategory === 'Wrong_Identification') {
-         return res.status(200).json(new ApiResponse(200, {
-           pipelineStatus: 'Bypassed_QA',
-           processingTimeMs: Date.now() - startTime,
-           discovery,
-           qaReport: {
-             category: 'Wrong_Identification',
-             observationNote: 'Informational policy inquiry. No operational QA evaluation required.',
-             errorIdentified: 'None',
-             errorReason: 'N/A'
-           },
-           performanceScore: {
-             finalScore: null,
-             grade: 'N/A',
-             breakdown: { errorFlagged: 'None' }
-           }
-         }, 'Informational query bypassed QA evaluation to save API costs.'));
-      }
-      
-      // ==========================================
-      // STEP 3: HANDLE UNKNOWN INTENTS
-      // ==========================================
-      if (primaryCategory === 'Unknown') {
-         return res.status(200).json(new ApiResponse(200, {
-           pipelineStatus: 'Skipped',
-           processingTimeMs: Date.now() - startTime,
-           discovery,
-           qaReport: null,
-           performanceScore: null
-         }, 'Conversation intent could not be classified. Skipped QA.'));
+      // STEP 2 - Informational Queries
+      if (
+        primaryCategory === "Policy Inquiry" ||
+        primaryCategory === "General Inquiry"
+      ) {
+        console.log("⏩ Bypassing QA (Informational Query)");
+        return res.status(200).json(
+          new ApiResponse(
+            200,
+            {
+              pipelineStatus: "Bypassed_QA",
+              processingTimeMs: Date.now() - startTime,
+              discovery,
+              qaAnalysis: {
+                overallAssessment: "This conversation was informational only. No QA evaluation was required.",
+                sopAssessment: [],
+                criticalFindings: [],
+                coachingFeedback: [],
+                category: primaryCategory,
+              },
+            },
+            "Informational query bypassed QA evaluation."
+          )
+        );
       }
 
-      // ==========================================
-      // STEP 4: OPERATIONAL QA EVALUATION
-      // ==========================================
-      let qaReport;
-      
-      if (primaryCategory === 'Cancellation') {
-        qaReport = await CancellationService.evaluate(conversation);
-      } 
-      else if (primaryCategory === 'Refund') {
-        qaReport = await RefundService.evaluateRefund(conversation);
+      // STEP 3 - Unknown Intent
+      if (primaryCategory === "Unknown") {
+        console.log("⚠️ Unknown intent. Skipping evaluation.");
+        return res.status(200).json(
+          new ApiResponse(
+            200,
+            {
+              pipelineStatus: "Skipped",
+              processingTimeMs: Date.now() - startTime,
+              discovery,
+              qaAnalysis: null,
+            },
+            "Unable to classify conversation."
+          )
+        );
       }
-      else {
-        throw new ApiError(501, `Evaluator for category '${primaryCategory}' is not yet implemented.`);
+
+      // STEP 4 - QA Evaluation
+      console.log(`4. ⚙️ Routing to QA Evaluator for: ${primaryCategory}`);
+      let qaAnalysis;
+
+      switch (primaryCategory) {
+        case "Cancellation":
+          qaAnalysis = await CancellationService.evaluate(conversation);
+          break;
+
+        case "Refund":
+          qaAnalysis = await RefundService.evaluateRefund(conversation);
+          break;
+
+        case "Payment Verification": 
+          qaAnalysis = await PaymentService.evaluate(conversation);
+          break;
+
+        default:
+          console.log(`❌ ERROR: No service built yet for ${primaryCategory}`);
+          throw new ApiError(
+            501,
+            `No evaluator implemented for ${primaryCategory}.`
+          );
       }
 
-      
-      const performanceScore = ScoringService.calculateScore(qaReport);
-      const processingTimeMs = Date.now() - startTime;
+      console.log("✅ QA Evaluation Complete! Sending response to Postman.\n");
 
-      return res.status(200).json(new ApiResponse(200, {
-        pipelineStatus: 'Complete',
-        processingTimeMs,
-        discovery,
-        qaReport,
-        performanceScore
-      }, 'Full conversation evaluation pipeline completed.'));
-
-    } catch (error) {
-      logger.error('Orchestrator Pipeline Error:', error);
-      next(error);
+      return res.status(200).json(
+        new ApiResponse(
+          200,
+          {
+            pipelineStatus: "Complete",
+            processingTimeMs: Date.now() - startTime,
+            discovery,
+            qaAnalysis,
+          },
+          "Full conversation evaluation pipeline completed."
+        )
+      );
+    } catch (err) {
+      console.error("💥 CAUGHT ERROR IN ORCHESTRATOR:");
+      console.error(err.message);
+      logger.error(err.stack || err.message);
+      next(err);
     }
   }
 }

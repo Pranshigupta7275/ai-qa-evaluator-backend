@@ -1,7 +1,6 @@
 const intentService = require('./intent.service');
 const cancellationService = require('./cancellation.service');
 const refundService = require('./refund.service'); 
-const scoringService = require('./scoring.service'); // Deterministic Scoring Service
 const logger = require('../config/logger');
 const ApiError = require('../utils/ApiError');
 
@@ -12,7 +11,7 @@ class OrchestratorService {
     }
 
     const startTime = Date.now();
-    logger.info('Starting Full AI Evaluation Pipeline...');
+    logger.info('Starting Senior QA Coaching Pipeline for Corendon Airlines...');
 
     try {
       // --------------------------------------------------------
@@ -21,14 +20,13 @@ class OrchestratorService {
       const discoveryData = await intentService.detectIntentAndCategory(conversation);
       
       // Extract the detected category safely. 
-      // Ensure it maps to your frontend tabs (Refund, Cancellation, etc.)
       const categoryName = discoveryData.category?.name || discoveryData.primaryCategory || 'Unknown';
       
       let evaluationData = null;
       let pipelineStatus = 'Complete';
 
       // --------------------------------------------------------
-      // STAGE 2: Dynamic QA Routing
+      // STAGE 2: Dynamic QA Routing (Root Cause Analysis)
       // --------------------------------------------------------
       switch (categoryName) {
         case 'Cancellation':
@@ -43,68 +41,42 @@ class OrchestratorService {
 
         // Add future operational categories here (Baggage, Reschedule, Booking, etc.)
         default:
-          logger.info(`No specific QA evaluator built yet for category: ${categoryName}`);
+          logger.info(`No specific coaching rules built yet for category: ${categoryName}`);
           evaluationData = {
-            message: `QA rules for category '${categoryName}' are pending development.`,
+            message: `QA Coaching rules for category '${categoryName}' are pending development.`,
             status: 'Skipped'
           };
           pipelineStatus = 'Discovery_Only';
       }
 
       // --------------------------------------------------------
-      // STAGE 3: Deterministic Backend Scoring & Normalization
+      // STAGE 3: Data Normalization
       // --------------------------------------------------------
-      // Extract the core report. (EvaluationService flattens it, but this acts as a failsafe)
-      const finalQaReport = evaluationData?.qaReport || evaluationData;
-
-      // Default safe state for performance score
-      let performanceScore = { finalScore: 0, grade: "N/A", breakdown: {} };
+      // Extract the flat report. (EvaluationService flattens it, but this acts as a failsafe)
+      const finalCoachingReport = evaluationData?.qaReport || evaluationData;
       
-      if (pipelineStatus === 'Complete' && finalQaReport && finalQaReport.status !== 'Skipped') {
-          
-          // Safely inject the category into the report so the scoring service logic can track it
-          if (typeof finalQaReport === 'object') {
-              finalQaReport.category = categoryName; 
+      if (pipelineStatus === 'Complete' && finalCoachingReport && finalCoachingReport.status !== 'Skipped') {
+          // Safely inject the category into the report for the frontend dashboard
+          if (typeof finalCoachingReport === 'object') {
+              finalCoachingReport.category = categoryName; 
           }
-          
-          // FORCE DETERMINISTIC SCORING (Wrapped in an Error Boundary)
-          // This entirely removes the LLM's ability to guess the grade and protects the API from crashing.
-          try {
-              performanceScore = scoringService.calculateScore(finalQaReport);
-          } catch (scoringError) {
-              logger.error('Deterministic Scoring Failed, falling back to safe default', { error: scoringError.message });
-              performanceScore = { 
-                  finalScore: 0, 
-                  grade: "Scoring Error", 
-                  breakdown: { details: "Backend failed to calculate score from QA data." } 
-              };
-          }
-
-      } else if (pipelineStatus === 'Discovery_Only') {
-          // Fallback if no QA was performed for this category
-          performanceScore = { 
-              finalScore: 0, 
-              grade: "N/A", 
-              breakdown: { details: "No QA rules configured for this category yet." } 
-          };
       }
 
       const latency = Date.now() - startTime;
       logger.info('Pipeline Completed Successfully', { 
           latencyMs: latency, 
-          category: categoryName, 
-          finalScore: performanceScore.finalScore 
+          category: categoryName,
+          status: pipelineStatus
       });
 
       // --------------------------------------------------------
-      // STAGE 4: Merge & Return Unified API Report
+      // STAGE 4: Merge & Return Unified API Report (No Scoring)
       // --------------------------------------------------------
-      return {
+    return {
         pipelineStatus,
         processingTimeMs: latency,
         discovery: discoveryData,
-        qaReport: finalQaReport,
-        performanceScore // <-- Strictly controlled by your Node.js math, absolutely no AI involvement here
+        qaReport: finalCoachingReport 
       };
 
     } catch (error) {
