@@ -2,135 +2,87 @@ const IntentDetectionService = require("../services/intent.service");
 const CancellationService = require("../services/cancellation.service");
 const RefundService = require("../services/refund.service");
 const PaymentService = require("../services/payment.service");
+const Evaluation = require("../models/Evaluation.model");
 const logger = require("../config/logger");
 const ApiResponse = require("../utils/ApiResponse");
 const ApiError = require("../utils/ApiError");
 
 class OrchestratorController {
   async analyzeFull(req, res, next) {
-    const startTime = Date.now();
-
     try {
-      // ==========================================
-      // DEBUGGING: INCOMING REQUEST
-      // ==========================================
-      console.log("\n========== 🚨 NEW REQUEST RECEIVED 🚨 ==========");
-      console.log("1. RAW req.body from Postman:");
-      console.log(JSON.stringify(req.body, null, 2)); // This will print exactly what Express sees!
+      const { petitionId, conversation } = req.body;
 
-      logger.info("========== Incoming Request ==========");
-      logger.info(JSON.stringify(req.body, null, 2));
-
-      const conversation = req.body?.conversation;
-
-      console.log("2. Extracted 'conversation' property:");
-      console.log(conversation); 
-
-      // VALIDATION
-      if (!Array.isArray(conversation) || conversation.length === 0) {
-        console.log("❌ ERROR: Validation failed! conversation is either missing, not an array, or empty.");
-        throw new ApiError(
-          400,
-          "A valid conversation array is required.",
-          "BAD_REQUEST"
-        );
+      // 1. Validate CRM Payload
+      if (!petitionId || !Array.isArray(conversation) || conversation.length === 0) {
+        throw new ApiError(400, "Valid petitionId and conversation array are required.");
       }
 
-      console.log("✅ Validation passed. Sending to Intent Router...");
-
-      // STEP 1 - Intent Detection
+      // 2. Intent Detection
       const discovery = await IntentDetectionService.detectIntentAndCategory(conversation);
-      const { primaryCategory, routingSource } = discovery;
+      const { primaryCategory } = discovery;
 
-      console.log(`3. 🎯 Intent Detected: ${primaryCategory} (via ${routingSource})`);
-      logger.info(`Intent detected: ${primaryCategory} (${routingSource || "Unknown"})`);
-
-      // STEP 2 - Informational Queries
-      if (
-        primaryCategory === "Policy Inquiry" ||
-        primaryCategory === "General Inquiry"
-      ) {
-        console.log("⏩ Bypassing QA (Informational Query)");
-        return res.status(200).json(
-          new ApiResponse(
-            200,
-            {
-              pipelineStatus: "Bypassed_QA",
-              processingTimeMs: Date.now() - startTime,
-              discovery,
-              qaAnalysis: {
-                overallAssessment: "This conversation was informational only. No QA evaluation was required.",
-                sopAssessment: [],
-                criticalFindings: [],
-                coachingFeedback: [],
-                category: primaryCategory,
-              },
-            },
-            "Informational query bypassed QA evaluation."
-          )
-        );
+      // 3. Handle Informational Queries
+      if (["Policy Inquiry", "General Inquiry"].includes(primaryCategory)) {
+        return res.status(200).json(new ApiResponse(200, { pipelineStatus: "Bypassed_QA", discovery }));
       }
 
-      // STEP 3 - Unknown Intent
-      if (primaryCategory === "Unknown") {
-        console.log("⚠️ Unknown intent. Skipping evaluation.");
-        return res.status(200).json(
-          new ApiResponse(
-            200,
-            {
-              pipelineStatus: "Skipped",
-              processingTimeMs: Date.now() - startTime,
-              discovery,
-              qaAnalysis: null,
-            },
-            "Unable to classify conversation."
-          )
-        );
-      }
-
-      // STEP 4 - QA Evaluation
-      console.log(`4. ⚙️ Routing to QA Evaluator for: ${primaryCategory}`);
+      // 4. QA Evaluation Routing
       let qaAnalysis;
-
       switch (primaryCategory) {
         case "Cancellation":
           qaAnalysis = await CancellationService.evaluate(conversation);
           break;
-
         case "Refund":
           qaAnalysis = await RefundService.evaluateRefund(conversation);
           break;
-
-        case "Payment Verification": 
+        case "Payment Verification":
           qaAnalysis = await PaymentService.evaluate(conversation);
           break;
-
         default:
-          console.log(`❌ ERROR: No service built yet for ${primaryCategory}`);
-          throw new ApiError(
-            501,
-            `No evaluator implemented for ${primaryCategory}.`
-          );
+          throw new ApiError(501, `No evaluator implemented for category: ${primaryCategory}`);
       }
 
-      console.log("✅ QA Evaluation Complete! Sending response to Postman.\n");
+      // 5. Unified Data Mapping (Matches Schema perfectly)
+      // Standardizing field names here ensures no data loss
+      const evaluationData = {
+        petitionId,
+        chatLogs: conversation.map(c => ({
+          speaker: c.role || "Unknown",
+          message: c.message || "",
+          timestamp: c.timestamp || new Date() // Falls back to server time if CRM time is missing
+        })),
+        overallAssessment: qaAnalysis.overallAssessment,
+        findings: (qaAnalysis.findings || []).map(f => ({
+          severity: f.severity,
+          errorType: f.errorType,
+          issue: f.issue,
+          rootCause: f.rootCause,
+          impact: f.impact,
+          expectedBehaviour: f.expectedBehaviour,
+          evidence: {
+            customer: f.evidence?.customer || "N/A",
+            agent: f.evidence?.agent || "N/A"
+          }
+        })),
+        observations: qaAnalysis.observations || [],
+        recommendations: qaAnalysis.recommendations || []
+      };
 
+      // 6. Persistence
+      const evaluationEntry = await Evaluation.create(evaluationData);
+      logger.info(`Evaluation saved: ${evaluationEntry._id}`);
+
+      // 7. Success Response
       return res.status(200).json(
-        new ApiResponse(
-          200,
-          {
-            pipelineStatus: "Complete",
-            processingTimeMs: Date.now() - startTime,
-            discovery,
-            qaAnalysis,
-          },
-          "Full conversation evaluation pipeline completed."
-        )
+        new ApiResponse(200, {
+          pipelineStatus: "Complete",
+          discovery,
+          qaAnalysis
+        }, "Evaluation completed and saved.")
       );
+
     } catch (err) {
-      console.error("💥 CAUGHT ERROR IN ORCHESTRATOR:");
-      console.error(err.message);
-      logger.error(err.stack || err.message);
+      logger.error("Orchestrator Error:", err);
       next(err);
     }
   }
