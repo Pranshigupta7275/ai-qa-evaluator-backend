@@ -1,14 +1,14 @@
 const mongoose = require("mongoose");
 
 const EvaluationSchema = new mongoose.Schema({
-    // CRM Reference (Essential for linking AI evaluations to real Zendesk/Salesforce tickets)
+    // CRM Reference
     petitionId: {
         type: String,
         required: true,
         index: true
     },
 
-    // Conversation (Preserves context so managers can read the chat without leaving the dashboard)
+    // Conversation Context
     chatLogs: [
         {
             speaker: String, // Customer | Agent
@@ -37,12 +37,11 @@ const EvaluationSchema = new mongoose.Schema({
     // Good things the agent did
     observations: [String],
 
-    // Coaching / Recommendations for the agent
+    // Coaching / Recommendations
     recommendations: [String]
 
 }, {
-    // Automatically adds createdAt and updatedAt fields to every document
     timestamps: true
 });
 
-module.exports = mongoose.model("Evaluation", EvaluationSchema);
+module.exports = mongoose.model("Evaluation", EvaluationSchema, "queryreports");
