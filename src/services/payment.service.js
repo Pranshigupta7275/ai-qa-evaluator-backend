@@ -37,7 +37,7 @@ class PaymentService {
             // Unpack the JSON so it sits at the root of qaAnalysis
             qaAnalysis = JSON.parse(llmResponse.rawText);
             
-            // 👉 LOG THE TOKENS INTERNALLY FOR ANALYTICS (Hidden from API response)
+            
             logger.info("LLM Usage Tracked", {
                 model: llmResponse.modelName,
                 promptTokens: llmResponse.tokenUsage?.prompt_tokens,
