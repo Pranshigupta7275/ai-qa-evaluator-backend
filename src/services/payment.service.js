@@ -5,66 +5,57 @@ const logger = require('../config/logger');
 
 class PaymentService {
   async evaluate(conversation) {
-    const conversationText = conversation.map(c => `${c.role}: ${c.message}`).join('\n');
     try {
       logger.info('Compiling Payment Verification Prompt...');
 
-      // 1. Combine the Base Rules with the Specific SOP
-      const systemInstruction = `
-        ${GLOBAL_QA_BASE_PROMPT}
-        
-        ${PAYMENT_VERIFICATION_SOP}
-      `;
-
-      // 2. Format the conversation for the LLM
-      const formattedConversation = JSON.stringify(conversation, null, 2);
+      // 1. Combine Prompts
+      const systemInstruction = `${GLOBAL_QA_BASE_PROMPT}\n${PAYMENT_VERIFICATION_SOP}`;
       
       const userPrompt = `
         CONVERSATION TO EVALUATE:
-        ${formattedConversation}
+        ${JSON.stringify(conversation, null, 2)}
+        
+        REMEMBER: Output only valid, raw JSON. Do not include markdown or explanations.
       `;
 
-      // 3. Call your LLM Provider Factory
+      // 2. Call Provider
       const aiProvider = ProviderFactory.getProvider('groq'); 
       const llmResponse = await aiProvider.generate(systemInstruction, userPrompt); 
 
-      // 4. Parse and return the JSON cleanly
-      let qaAnalysis = {};
+      // 3. Extract and Sanitize the Response
+      let rawText = llmResponse?.rawText || llmResponse;
       
-      // If the response has rawText, let's parse it into a real object
-      if (llmResponse && llmResponse.rawText) {
-        try {
-            // Unpack the JSON so it sits at the root of qaAnalysis
-            qaAnalysis = JSON.parse(llmResponse.rawText);
-            
-            
-            logger.info("LLM Usage Tracked", {
-                model: llmResponse.modelName,
-                promptTokens: llmResponse.tokenUsage?.prompt_tokens,
-                completionTokens: llmResponse.tokenUsage?.completion_tokens,
-                totalTokens: llmResponse.tokenUsage?.total_tokens
-            });
+      if (typeof rawText === 'string') {
+        // PRO-TIP: Strip markdown and any text outside the JSON braces
+        const cleanedJson = rawText
+          .replace(/```json/g, "")
+          .replace(/```/g, "")
+          .trim();
+        
+        // Find the first '{' and last '}' to handle accidental LLM chatter
+        const startIndex = cleanedJson.indexOf('{');
+        const endIndex = cleanedJson.lastIndexOf('}');
+        const jsonString = cleanedJson.substring(startIndex, endIndex + 1);
 
-        } catch (parseError) {
-            logger.warn('Could not parse AI response as JSON. Returning raw text.');
-            qaAnalysis = { rawText: llmResponse.rawText };
+        const qaAnalysis = JSON.parse(jsonString);
+
+        // 4. Log usage metrics
+        if (llmResponse?.tokenUsage) {
+          logger.info("LLM Usage Tracked", {
+            model: llmResponse.modelName,
+            totalTokens: llmResponse.tokenUsage.total_tokens
+          });
         }
-      } else if (typeof llmResponse === 'string') {
-          try {
-              qaAnalysis = JSON.parse(llmResponse);
-          } catch (e) {
-              logger.warn('Could not parse string response as JSON.');
-              qaAnalysis = { rawText: llmResponse };
-          }
-      } else {
-          qaAnalysis = llmResponse;
+
+        return qaAnalysis;
       }
-      
-      return qaAnalysis;
+
+      return rawText;
 
     } catch (error) {
-      logger.error('PaymentService Evaluation Failed:', error);
-      throw error;
+      logger.error('PaymentService Evaluation Failed:', error.message);
+      // Re-throw so the Orchestrator knows the evaluation failed
+      throw new Error(`AI Evaluation Failed: ${error.message}`);
     }
   }
 }
