@@ -6,12 +6,12 @@ const connectDB = require('./config/db');
 
 const PORT = env.PORT || 8080;
 
-// 👉 FIRE UP THE DATABASE CONNECTION
+
 connectDB();
 
 try {
   const server = app.listen(PORT, () => {
-    logger.info(`🚀 Server running in [${env.NODE_ENV}] mode on port: ${PORT}`);
+    logger.info(` Server running in [${env.NODE_ENV}] mode on port: ${PORT}`);
   });
 
   const handleTermination = (signal) => {
@@ -26,7 +26,7 @@ try {
   process.on('SIGINT', () => handleTermination('SIGINT'));
 
 } catch (error) {
-  logger.error('💥 Critical Error during server initialization:', error);
+  logger.error(' Critical Error during server initialization:', error);
   process.exit(1);
 }
 
