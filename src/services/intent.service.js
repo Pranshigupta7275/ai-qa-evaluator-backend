@@ -72,33 +72,33 @@ class IntentDetectionService {
       // STAGE 2: ACTION DETECTOR (Fast Regex)
       // ==========================================
       const actionRules = [
-        { category: 'Cancellation', intentDescription: 'Customer requested cancellation.', patterns: [/\bcancel\b.*\bbooking\b/i, /\bcancel\b.*\bticket\b/i, /\bcancel\b.*\bflight\b/i, /\bplease\b.*\bcancel\b/i, /\bwant\b.*\bcancel\b/i, /\bneed\b.*\bcancel\b/i, /\bhelp\b.*\bcancel\b/i, /^cancel it$/i] },
-        { category: 'Refund', intentDescription: 'Customer requested a refund.', patterns: [/\brefund\b.*\bmy\b/i, /\bwhere\b.*\brefund\b/i, /\bneed\b.*\bmoney\b.*\bback\b/i, /\bprocess\b.*\brefund\b/i, /\bissue\b.*\brefund\b/i] },
-        
-        // 👉 UPDATED: Changed from 'Payments' to 'Payment Verification' and added better keywords
-        { category: 'Payment Verification', intentDescription: 'Customer reported a payment issue or requested verification.', patterns: [/\bpay\b.*\bfor\b/i, /\bupdate\b.*\bpayment\b/i, /\bcard\b.*\bdeclined\b/i, /\bpayment\b.*\bfailed\b/i, /\btransaction\b/i, /\bpaid\b/i] },
-        
-        { category: 'Baggage', intentDescription: 'Customer requested baggage services.', patterns: [/\badd\b.*\bbaggage\b/i, /\badd\b.*\bluggage\b/i, /\blost\b.*\bbag\b/i, /\bmissing\b.*\bluggage\b/i] },
-        { category: 'Booking', intentDescription: 'Customer requested a new reservation.', patterns: [/\bbook\b.*\bflight\b/i, /\bnew\b.*\breservation\b/i, /\bwant\b.*\bbook\b/i, /\bmake\b.*\bbooking\b/i] }
-      ];
-
-      for (const rule of actionRules) {
-        if (rule.patterns.some(pattern => pattern.test(normalizedCustomerText))) {
-          routingSource = 'ActionDetector';
-          finalCategory = rule.category;
-          
-          logger.info('Intent Detected (Fast Action Regex)', { event: 'IntentRouted', routingSource, category: finalCategory, latencyMs: Date.now() - startTime });
-          
-          return {
-            primaryCategory: finalCategory,
-            customerIntent: rule.intentDescription,
-            sentiment: 'Neutral',
-            confidence: 1.0,
-            routingSource
-          };
+        { 
+          category: 'Cancellation', 
+          intentDescription: 'Customer requested cancellation.', 
+          patterns: [/\bcancel my booking\b/i, /\bcancel my flight\b/i, /^cancel it$/i] 
+        },
+        { 
+          category: 'Refund', 
+          intentDescription: 'Customer requested a refund.', 
+          patterns: [/\bwant a refund\b/i, /\bwhere is my refund\b/i, /\bissue a refund\b/i] 
+        },
+        { 
+          category: 'Payment Verification', 
+          intentDescription: 'Customer reported a payment issue or requested verification.', 
+          // Removed broad words like "paid" and "transaction". Now only triggers on obvious payment phrases.
+          patterns: [/\bpayment went through\b/i, /\bverify my payment\b/i, /\bpayment failed\b/i, /\bcard declined\b/i] 
+        },
+        { 
+          category: 'Baggage', 
+          intentDescription: 'Customer requested baggage services.', 
+          patterns: [/\badd baggage\b/i, /\blost luggage\b/i, /\bmissing bag\b/i] 
+        },
+        { 
+          category: 'Booking', 
+          intentDescription: 'Customer requested a new reservation.', 
+          patterns: [/\bbook a flight\b/i, /\bnew reservation\b/i] 
         }
-      }
-
+      ];
       // ==========================================
       // STAGE 3: LLM ROUTER (Single API Call)
       // ==========================================
