@@ -35,7 +35,7 @@ const EvaluationSchema = new mongoose.Schema({
     }],
 
     // Good things the agent did
-    observations: [String],
+    observations: [],
 
     // Coaching / Recommendations
     recommendations: [String]
