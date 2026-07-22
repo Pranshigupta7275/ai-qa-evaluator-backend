@@ -11,6 +11,11 @@ const notFoundHandler = require('./middlewares/notFound.middleware');
 const errorHandler = require('./middlewares/error.middleware');
 const orchestratorRoutes = require('./routes/orchestrator.routes');
 
+const queryRoutes = require('./routes/query.routes');
+const qualityRoutes = require('./routes/quality.routes');
+
+
+
 const app = express(); // 👈 Essential: You must define 'app'
 
 // 1. Unified Body Parsing (Declare ONCE)
@@ -36,6 +41,12 @@ app.use(morgan(morganFormat, {
 // 5. Routes
 app.use('/api/v1', routes);
 app.use('/api/v1/orchestrator', orchestratorRoutes);
+app.use('/api/queries', queryRoutes);
+app.use('/api/v1/quality-monitoring', qualityRoutes);
+
+
+
+
 
 app.post('/api/test-body', (req, res) => {
     console.log("🔥 DIRECT TEST ROUTE HIT!");
