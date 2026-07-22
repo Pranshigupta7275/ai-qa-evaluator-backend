@@ -1,78 +1,46 @@
-const ConversationPreprocessor = require('../ai/preprocess/conversation.preprocessor');
-const PromptBuilder = require('../ai/builder/prompt.builder');
-const ProviderFactory = require('../ai/providers/provider.factory');
-const ResponseParser = require('../ai/parser/response.parser');
+const crmService = require('./crm.service');
+const evaluationOrchestrator = require('../orchestrators/evaluation.orchestrator');
 const logger = require('../config/logger');
+const ApiError = require('../utils/ApiError');
 
 class EvaluationService {
-  async evaluateConversation(conversation) {
-    const startTime = Date.now();
-    const providerName = process.env.DEFAULT_AI_PROVIDER || 'gemini';
-    
-    try {
-      // 1. Preprocess the conversation
-      const transcript = ConversationPreprocessor.process(conversation);
-      
-      // 2. Build the Evaluation Prompt
-      const prompt = PromptBuilder.buildEvaluationPrompt(transcript);
-      
-      // 3. Get LLM Provider & Execute
-      const provider = ProviderFactory.getProvider(providerName);
-      const llmResponse = await provider.generate(prompt);
-      
-      // 4. Parse the LLM Output
-      let parsedData = ResponseParser.parse(llmResponse.rawText);
+  /**
+   * Master pipeline to process a full QA evaluation
+   * @param {string} petitionId 
+   */
+  async processEvaluation(petitionId) {
+    logger.info(`[EvaluationService] Initiating pipeline for Petition: ${petitionId}`);
 
-      // ==========================================
-      // ANTI-HALLUCINATION & SCHEMA GUARDRAILS
-      // ==========================================
-      
-      // Guardrail 1: Robust Nested JSON Flattening (Matryoshka Fix)
-      // LLMs occasionally wrap the response in multiple "qaReport" keys despite instructions.
-      // This drills down to the core payload, no matter how deeply it was nested.
-      while (parsedData && parsedData.qaReport && typeof parsedData.qaReport === 'object' && parsedData.qaReport.qaReport) {
-        parsedData.qaReport = parsedData.qaReport.qaReport;
-      }
+    // ==========================================
+    // 1. FETCH EXTERNAL DATA (CRM)
+    // ==========================================
+    logger.info(`[EvaluationService] Fetching conversation data from CRM...`);
+    const chatData = await crmService.fetchChat(petitionId);
 
-      // Normalize the payload: Extract the flat core object
-      let normalizedReport = parsedData.qaReport ? parsedData.qaReport : parsedData;
-
-      // Guardrail 2: Strip ALL Rogue Scoring & Grading
-      // The deterministic Node.js backend calculates these. Delete them immediately if the LLM hallucinates them.
-      if (normalizedReport) {
-        delete normalizedReport.performanceScore;
-        delete normalizedReport.overallScore;
-        delete normalizedReport.grade;
-        
-        // Failsafe: Also delete from the root object if they leaked outside the wrapper
-        if (parsedData !== normalizedReport) {
-          delete parsedData.performanceScore;
-          delete parsedData.overallScore;
-          delete parsedData.grade;
-        }
-      }
-
-      // 5. Logging latency & metrics
-      const latency = Date.now() - startTime;
-      logger.info('Conversation Evaluated Successfully', {
-        provider: providerName,
-        model: llmResponse.modelName || 'default',
-        latencyMs: latency,
-        tokens: llmResponse.tokenUsage || {}
-      });
-
-      // 6. Return the perfectly sanitized, flat data to the Orchestrator
-      return normalizedReport;
-
-    } catch (error) {
-      const latency = Date.now() - startTime;
-      logger.error('Evaluation Pipeline Failed', {
-        provider: providerName,
-        latencyMs: latency,
-        error: error.message
-      });
-      throw error; 
+    if (!chatData || !chatData.messages || chatData.messages.length === 0) {
+      throw new ApiError(404, 'No conversation data found in CRM for this petition.', 'NOT_FOUND');
     }
+
+    // ==========================================
+    // 2. RUN AI ORCHESTRATOR
+    // ==========================================
+    logger.info(`[EvaluationService] Passing conversation to AI Orchestrator...`);
+    
+    // The orchestrator handles Intent Detection -> Policy Detection -> Prompt Gen -> LLM call
+    const evaluationResult = await evaluationOrchestrator.analyzeFull(chatData);
+
+    if (!evaluationResult) {
+      throw new ApiError(500, 'AI Orchestrator failed to return an evaluation.', 'INTERNAL_SERVER_ERROR');
+    }
+
+    // ==========================================
+    // 3. PERSIST TO DATABASE (REPOSITORY LAYER)
+    // ==========================================
+    // logger.info(`[EvaluationService] Saving evaluation to database...`);
+    // await evaluationRepository.save(evaluationResult);
+
+    logger.info(`[EvaluationService] Pipeline completed for Petition: ${petitionId}`);
+    return evaluationResult;
   }
 }
 

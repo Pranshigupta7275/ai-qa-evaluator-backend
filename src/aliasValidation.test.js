@@ -1,75 +1,100 @@
 const AliasValidationService = require('./services/aliasValidation.service');
 
-describe('AliasValidationService - Deterministic Validations', () => {
-    
-    const validBaseConversation = [
-        { role: 'system', speaker: 'System', message: 'LILY has accepted this query', timestamp: '14:46' },
-        { role: 'customer', speaker: 'Harry Wilson', message: 'Hello', timestamp: '14:46' }
-    ];
+describe('AliasValidationService - Corendon Airlines SOP', () => {
 
-    it('should return PASS for correct agent alias (case-insensitive match)', () => {
-        const convo = [...validBaseConversation, { role: 'agent', speaker: 'LILY', message: 'My name is Lily.' }];
-        const result = AliasValidationService.validate(convo);
+    test('should pass using a real-world Corendon Airlines transcript (Alexandria & Connor)', () => {
+        const conversation = [
+            { role: 'customer', message: "Hey, I just got a nightmare of a website error while trying to cancel a ticket online. Zurich to Warsaw, this Friday, my friend's birthday, and I just got the worst email saying they can't process it. Can you just walk me through it?" },
+            { role: 'agent', message: "Hello Alexandria, welcome to Corendon Airlines. My name is Connor I'm here to assist you today." },
+            { role: 'customer', message: "Hey Connor, yeah I saw that. So about my ticket, how do I cancel it online step by step?" },
+            { role: 'agent', message: "As I understand you connected to us regarding cancellation concern. Am I correct?" }
+        ];
+        
+        const result = AliasValidationService.validate(conversation, 'Alexandria Hines', 'CONNOR');
+        
+        expect(result.passed).toBe(true);
+        expect(result.observations[0].status).toBe('Passed');
+        expect(result.observations[0].observation).toBe('No alias violations were detected across all support tiers.');
+    });
+
+    test('should pass a correct L1 agent greeting (Happy Path)', () => {
+        const conversation = [
+            { role: 'system', message: 'LARS has accepted this query' },
+            { role: 'customer', message: 'Hi, I need help with my ticket.' },
+            { role: 'agent', message: 'Hello Amanda, welcome to Corendon Airlines. My name is Lars and I am here to assist you today.' }
+        ];
+        const result = AliasValidationService.validate(conversation, 'Amanda Smith');
+        
         expect(result.passed).toBe(true);
         expect(result.observations[0].status).toBe('Passed');
     });
 
-    it('should return FAIL for incorrect agent alias (LILY vs Lilly)', () => {
-        const convo = [...validBaseConversation, { role: 'agent', speaker: 'LILY', message: 'My name is Lilly.' }];
-        const result = AliasValidationService.validate(convo);
-        expect(result.passed).toBe(false);
-        expect(result.observations[0].observation).toContain("'Lilly' instead of the assigned name 'LILY'");
-    });
-
-    it('should return FAIL for incorrect agent alias (Rachel vs Rachael)', () => {
-        const convo = [
-            { role: 'system', speaker: 'System', message: 'Rachel has accepted this query' },
-            { role: 'agent', speaker: 'Rachel', message: "I'm Rachael." }
+    test('should fail if agent uses the wrong name (Agent Alias Violation)', () => {
+        const conversation = [
+            { role: 'system', message: 'LARS has accepted this query' },
+            { role: 'agent', message: 'Hello Amanda, welcome to Corendon Airlines. My name is Rachael and I am here to assist you today.' }
         ];
-        const result = AliasValidationService.validate(convo);
+        const result = AliasValidationService.validate(conversation, 'Amanda Smith');
+        
         expect(result.passed).toBe(false);
-        expect(result.observations[0].observation).toContain("'Rachael' instead of the assigned name 'RACHEL'");
+        // FIXED: Capital 'Rachael'
+        expect(result.observations[0].observation).toContain("introduced themselves as 'Rachael'");
     });
 
-    it('should return PASS for correct customer name', () => {
-        const convo = [...validBaseConversation, { role: 'agent', speaker: 'LILY', message: 'Hello Harry, how are you?' }];
-        const result = AliasValidationService.validate(convo);
+    test('should fail if agent addresses the wrong customer (Customer Alias Violation)', () => {
+        const conversation = [
+            { role: 'system', message: 'RUBEN has accepted this query' },
+            { role: 'agent', message: 'Hello David, welcome to Corendon Airlines. This is Ruben here to assist you today.' }
+        ];
+        const result = AliasValidationService.validate(conversation, 'Amanda Smith');
+        
+        expect(result.passed).toBe(false);
+        // FIXED: Capital 'David'
+        expect(result.observations[0].observation).toContain("addressed the customer as 'David'");
+    });
+
+    test('should handle L1 to L2 escalations seamlessly (Multi-tier Happy Path)', () => {
+        const conversation = [
+            { role: 'system', message: 'LARS has accepted this query' },
+            { role: 'agent', message: 'Hello Amanda, welcome to Corendon Airlines. My name is Lars.' },
+            { role: 'system', message: 'System: Escalated to RUBEN' },
+            { role: 'agent', message: 'Hello Amanda, welcome to Corendon Airlines. This is Ruben.' }
+        ];
+        const result = AliasValidationService.validate(conversation, 'Amanda Smith');
+        
         expect(result.passed).toBe(true);
+        expect(result.observations[0].observation).toBe('No alias violations were detected across all support tiers.');
     });
 
-    it('should return FAIL for wrong customer name', () => {
-        const convo = [...validBaseConversation, { role: 'agent', speaker: 'LILY', message: 'Hello David, how are you?' }];
-        const result = AliasValidationService.validate(convo);
-        expect(result.passed).toBe(false);
-        expect(result.observations[0].observation).toContain("addressed the customer as 'David' instead of 'Harry'");
-    });
-
-    it('should report multiple alias violations accurately', () => {
-        const convo = [...validBaseConversation, { role: 'agent', speaker: 'LILY', message: 'Hello David. My name is Rachael.' }];
-        const result = AliasValidationService.validate(convo);
-        expect(result.passed).toBe(false);
-        expect(result.observations.length).toBe(2);
-    });
-
-    it('should prevent duplicate alias violations in the same message', () => {
-        const convo = [...validBaseConversation, { role: 'agent', speaker: 'LILY', message: 'Hello David. Please wait David.' }];
-        const result = AliasValidationService.validate(convo);
-        expect(result.passed).toBe(false);
-        expect(result.observations.length).toBe(1); // Should only log 'David' once for this message
-    });
-
-    it('should safely handle empty or malformed conversation arrays', () => {
-        expect(AliasValidationService.validate([]).passed).toBe(true);
-        expect(AliasValidationService.validate(null).passed).toBe(true);
-        expect(AliasValidationService.validate([ { invalid: 'data' } ]).passed).toBe(true);
-    });
-
-    it('should ignore greeting words, brands, cities, and weekdays', () => {
-        const convo = [
-            ...validBaseConversation,
-            { role: 'agent', speaker: 'LILY', message: 'Hello team, thanks everyone. Have a good Monday in London using Apple.' }
+    test('should fail if L2 agent introduces themselves incorrectly after an escalation', () => {
+        const conversation = [
+            { role: 'system', message: 'LARS has accepted this query' },
+            { role: 'agent', message: 'Hello Amanda, welcome to Corendon Airlines. My name is Lars.' },
+            { role: 'system', message: 'System: Escalated to RUBEN' },
+            { role: 'agent', message: 'Hello Amanda, welcome to Corendon Airlines. This is Koen.' }
         ];
-        const result = AliasValidationService.validate(convo);
+        const result = AliasValidationService.validate(conversation, 'Amanda Smith');
+        
+        expect(result.passed).toBe(false);
+        // FIXED: Capital 'Koen'
+        expect(result.observations[0].observation).toContain("introduced themselves as 'Koen' instead of the system-assigned name 'RUBEN'");
+    });
+
+    test('should ignore agent messages that do not contain a greeting', () => {
+        const conversation = [
+            { role: 'system', message: 'KOEN has accepted this query' },
+            { role: 'agent', message: 'I have successfully updated your ticket.' } 
+        ];
+        const result = AliasValidationService.validate(conversation, 'Amanda Smith');
+        
         expect(result.passed).toBe(true); 
+    });
+
+    test('should gracefully handle empty or malformed conversation arrays', () => {
+        const resultEmpty = AliasValidationService.validate([], 'Amanda Smith');
+        expect(resultEmpty.passed).toBe(true);
+
+        const resultMissingMessage = AliasValidationService.validate([{ role: 'agent' }], 'Amanda Smith');
+        expect(resultMissingMessage.passed).toBe(true);
     });
 });

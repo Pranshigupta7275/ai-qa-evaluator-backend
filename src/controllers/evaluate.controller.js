@@ -1,37 +1,37 @@
-const intentDetectionService = require('../services/intent.service');
 const logger = require('../config/logger');
 const ApiResponse = require('../utils/ApiResponse');
-const ApiError = require('../utils/ApiError');
 
 class EvaluateController {
-  // The route is looking for exactly this word: "evaluate"
   async evaluate(req, res, next) {
     try {
-      const { conversation } = req.body;
-
-      // ==========================================
-      // INPUT VALIDATION
-      // ==========================================
-      if (!conversation || !Array.isArray(conversation)) {
-        throw new ApiError(400, 'A valid conversation array is required.', 'BAD_REQUEST');
-      }
+      const { petitionId } = req.params || req.body;
       
-      logger.info('Starting Intent and Category Detection Pipeline...');
+      logger.info(`[TEST MODE] Received evaluation request for Petition: ${petitionId}`);
 
-      // Run the detection pipeline
-      const detectionData = await intentDetectionService.detectIntentAndCategory(conversation);
-      
-      // Return using the standard ApiResponse wrapper
+      // 🛑 STOP: Do not call the AI Orchestrator yet.
+      // We are just testing the frontend-to-backend connection (Phase 3).
+
+      const mockResponse = {
+        pipelineStatus: "Complete",
+        discovery: {
+           primaryCategory: "Cancellation",
+           intent: "User wants to cancel booking"
+        },
+        qaScore: {
+           score: 85,
+           grade: "Good",
+           passedRules: 8,
+           failedRules: 2
+        }
+      };
+
+      // Send the mock data back to Next.js
       return res.status(200).json(
-        new ApiResponse(
-          200, 
-          detectionData, 
-          'Conversation intent and category detected successfully.'
-        )
+        new ApiResponse(200, mockResponse, "MOCK Evaluation completed successfully.")
       );
 
     } catch (error) {
-      logger.error('Intent Detection Pipeline Error:', error);
+      logger.error("Mock Evaluation Error:", error);
       next(error); 
     }
   }
