@@ -26,7 +26,7 @@ class PaymentService {
       let rawText = llmResponse?.rawText || llmResponse;
       
       if (typeof rawText === 'string') {
-        // PRO-TIP: Strip markdown and any text outside the JSON braces
+        // Strip markdown and any text outside the JSON braces
         const cleanedJson = rawText
           .replace(/```json/g, "")
           .replace(/```/g, "")
@@ -35,14 +35,19 @@ class PaymentService {
         // Find the first '{' and last '}' to handle accidental LLM chatter
         const startIndex = cleanedJson.indexOf('{');
         const endIndex = cleanedJson.lastIndexOf('}');
-        const jsonString = cleanedJson.substring(startIndex, endIndex + 1);
+        
+        // CRITICAL SAFETY CHECK: Ensure brackets actually exist before parsing
+        if (startIndex === -1 || endIndex === -1) {
+            throw new Error("Failed to locate valid JSON brackets in the AI response.");
+        }
 
+        const jsonString = cleanedJson.substring(startIndex, endIndex + 1);
         const qaAnalysis = JSON.parse(jsonString);
 
         // 4. Log usage metrics
         if (llmResponse?.tokenUsage) {
           logger.info("LLM Usage Tracked", {
-            model: llmResponse.modelName,
+            model: llmResponse.modelName || 'Unknown Model', // Fallback added here
             totalTokens: llmResponse.tokenUsage.total_tokens
           });
         }
