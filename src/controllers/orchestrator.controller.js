@@ -2,8 +2,13 @@ const IntentDetectionService = require("../services/intent.service");
 const CancellationService = require("../services/cancellation.service");
 const RefundService = require("../services/refund.service");
 const PaymentService = require("../services/payment.service");
-const AliasValidationService = require("../services/aliasValidation.service"); // <-- ADDED
-const Evaluation = require("../models/Evaluation.model"); // Verify exact casing of your filename here
+const AliasValidationService = require("../services/aliasValidation.service");
+const baggageService = require('../services/baggage.service');
+const bookingService = require('../services/booking.service');
+const rescheduleService = require('../services/reschedule.service');
+const checkinService = require('../services/checkin.service');
+// FIXED: Lowercase 'e' for Linux deployment compatibility
+const Evaluation = require("../models/evaluation.model"); 
 const logger = require("../config/logger");
 const ApiResponse = require("../utils/ApiResponse");
 const ApiError = require("../utils/ApiError");
@@ -17,7 +22,6 @@ class OrchestratorController {
     try {
       const { petitionId, conversation , categoryOverride} = req.body;
 
-      // 1. Validate CRM Payload
       if (!petitionId || !Array.isArray(conversation) || conversation.length === 0) {
         throw new ApiError(400, "Valid petitionId and conversation array are required.");
       }
@@ -25,17 +29,12 @@ class OrchestratorController {
       const discovery = await IntentDetectionService.detectIntentAndCategory(conversation);
       const primaryCategory = categoryOverride || discovery.primaryCategory;
 
-      // 3. Handle Informational Queries
       if (["Policy Inquiry", "General Inquiry"].includes(primaryCategory)) {
         return res.status(200).json(new ApiResponse(200, { pipelineStatus: "Bypassed_QA", discovery }));
       }
 
-      // ---------------------------------------------------------
-      // 3.5 DETERMINISTIC VALIDATION: ALIAS QA
-      // ---------------------------------------------------------
       const aliasResults = AliasValidationService.validate(conversation);
 
-      // 4. QA Evaluation Routing
       let qaAnalysis;
       switch (primaryCategory) {
         case "Cancellation":
@@ -47,40 +46,93 @@ class OrchestratorController {
         case "Payment Verification":
           qaAnalysis = await PaymentService.evaluate(conversation);
           break;
+          
+        case "Baggage":
+        case "Baggage Delay":
+          qaAnalysis = await baggageService.evaluate(conversation);
+          break;
+        case "Booking":
+        case "Ticketing":
+          qaAnalysis = await bookingService.evaluate(conversation);
+          break;
+
+        case "Reschedule":
+        case "Name Change":
+          qaAnalysis = await rescheduleService.evaluate(conversation);
+          break;
+          case "Check-in":
+          qaAnalysis = await checkinService.evaluate(conversation);
+          break;
         default:
           throw new ApiError(501, `No evaluator implemented for category: ${primaryCategory}`);
       }
 
-      // ---------------------------------------------------------
-      // 4.5 MERGE DETERMINISTIC RESULTS WITH LLM RESULTS
-      // ---------------------------------------------------------
-      // Ensure QA analysis observations array exists
+      // Math & Alias Merge Logic
+      const sopAssessment = qaAnalysis.sopAssessment || [];
+      const passedCount = sopAssessment.filter(r => r.status === 'PASS').length;
+      const failedCount = sopAssessment.filter(r => r.status === 'FAIL').length;
+      const notObservedCount = sopAssessment.filter(r => r.status === 'NOT OBSERVED').length;
+
+      const totalObserved = passedCount + failedCount;
+      let finalScore = 100;
+      if (totalObserved > 0) {
+          finalScore = Math.round((passedCount / totalObserved) * 100);
+      } else if (totalObserved === 0 && failedCount === 0 && passedCount === 0) {
+          finalScore = 0; 
+      }
+
+      const findingsArray = qaAnalysis.criticalFindings || qaAnalysis.findings || [];
       if (!qaAnalysis.observations) qaAnalysis.observations = [];
 
-      // Push all deterministic alias observations into the final report
       if (aliasResults && aliasResults.observations) {
         qaAnalysis.observations.push(...aliasResults.observations);
       }
 
-      // (Optional) Mark overall assessment as failed if strict alias violation occurs
       if (!aliasResults.passed) {
-         // qaAnalysis.overallAssessment = "Failed"; // Uncomment if business requires automatic failure
+          finalScore = Math.max(0, finalScore - 20); 
+          aliasResults.observations.forEach(obs => {
+              if (obs.status === 'Failed') {
+                  findingsArray.push({
+                      severity: "High",
+                      errorType: "COMPLIANCE_VIOLATION", 
+                      issue: "Agent Alias Mismatch",
+                      rootCause: obs.observation,
+                      impact: "Breach of company identity protocol.",
+                      expectedBehaviour: "The agent must strictly introduce themselves using their system-assigned name.",
+                      evidence: { 
+                          customer: "N/A",
+                          agent: obs.chatEvidence || "No evidence provided" 
+                      }
+                  });
+              }
+          });
       }
 
-      // 5. Unified Data Mapping
-      // 5. Unified Data Mapping
+      let finalGrade = "Excellent";
+      if (finalScore < 90) finalGrade = "Good";
+      if (finalScore < 80) finalGrade = "Fair";
+      if (finalScore < 70) finalGrade = "Poor";
+
+      qaAnalysis.qaScore = {
+          score: finalScore,
+          grade: finalGrade,
+          passedRules: passedCount,
+          failedRules: failedCount,
+          notObserved: notObservedCount
+      };
+      
+      qaAnalysis.findings = findingsArray;
+      qaAnalysis.criticalFindings = findingsArray;
+
       const evaluationData = {
         petitionId,
         chatLogs: conversation.map(c => {
-          // Safety check: If the CRM sends a short time like "14:08", Mongoose will crash. 
-          // We verify if it can be parsed as a real Date, otherwise fallback to Date.now()
           let safeTimestamp = c.timestamp;
           if (safeTimestamp && isNaN(new Date(safeTimestamp).getTime())) {
             safeTimestamp = new Date(); 
           } else if (!safeTimestamp) {
             safeTimestamp = new Date();
           }
-
           return {
             speaker: c.speaker || c.role || "Unknown",
             message: c.message || "",
@@ -88,34 +140,29 @@ class OrchestratorController {
           };
         }),
         overallAssessment: qaAnalysis.overallAssessment,
-     
-        findings: (qaAnalysis.findings || []).map(f => ({
-          severity: f.severity,
-          errorType: f.errorType,
-          issue: f.issue,
-          rootCause: f.rootCause,
-          impact: f.impact,
-          expectedBehaviour: f.expectedBehaviour,
-          evidence: {
-            customer: f.evidence?.customer || "N/A",
-            agent: f.evidence?.agent || "N/A"
-          }
-        })),
+        findings: findingsArray,
         observations: qaAnalysis.observations || [],
         recommendations: qaAnalysis.recommendations || []
       };
 
-      // 6. Persistence
       const evaluationEntry = await Evaluation.create(evaluationData);
       logger.info(`Evaluation saved: ${evaluationEntry._id}`);
 
-      // 7. Success Response
+      // ==========================================
+      // OVERRIDE FIX: Build the final discovery object 
+      // ==========================================
+      const finalDiscovery = {
+        ...discovery,
+        primaryCategory: primaryCategory,
+        routingSource: categoryOverride ? "Manual_Override" : discovery.routingSource
+      };
+
       return res.status(200).json(
         new ApiResponse(200, {
           pipelineStatus: "Complete",
-          discovery,
+          discovery: finalDiscovery,
           qaAnalysis,
-          dbRecordId: evaluationEntry._id // Added this so you get the ID back!
+          dbRecordId: evaluationEntry._id
         }, "Evaluation completed and saved.")
       );
 
@@ -126,17 +173,15 @@ class OrchestratorController {
   }
 
   // ==========================================
-  // 2. GET EVALUATIONS (GET)
+  // 2. GET EVALUATIONS (GET) - FIXED: This was missing!
   // ==========================================
   async getEvaluations(req, res, next) {
     try {
-      // Setup pagination and optional filtering
       const { page = 1, limit = 10, petitionId } = req.query;
       const query = petitionId ? { petitionId } : {};
 
-      // Fetch from MongoDB
       const evaluations = await Evaluation.find(query)
-        .sort({ createdAt: -1 }) // Newest first
+        .sort({ createdAt: -1 }) 
         .limit(Number(limit))
         .skip((Number(page) - 1) * Number(limit))
         .exec();
